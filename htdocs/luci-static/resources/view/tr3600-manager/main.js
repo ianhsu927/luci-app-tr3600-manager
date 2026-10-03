@@ -1,6 +1,7 @@
  'use strict';
 'require view';
 'require rpc';
+'require poll';
 var getStatus = rpc.declare({object:'tr3600.manager', method:'status', params:[], expect:{}});
 var getBoard = rpc.declare({object:'system', method:'board', expect:{}});
 var getInterfaces = rpc.declare({object:'network.interface', method:'dump', expect:{interface:[]}});
@@ -31,7 +32,34 @@ function bytes(value) { return Number.isFinite(value) && value >= 0 ? (value / 1
 return view.extend({
  render:function() {
   var body=E('div'), button=E('button',{'class':'cbi-button cbi-button-action'},'刷新状态');
+  var settings={enabled:true,seconds:10};
+  try {
+   var saved=JSON.parse(localStorage.getItem('tr3600-manager.refresh') || 'null');
+   if (saved && typeof saved.enabled==='boolean') settings.enabled=saved.enabled;
+   if (saved && Number.isInteger(saved.seconds) && saved.seconds>=3 && saved.seconds<=300) settings.seconds=saved.seconds;
+  } catch(ignore) {}
+  var automatic=E('input',{type:'checkbox'}), interval=E('input',{type:'number',min:3,max:300,step:1,'style':'width:80px'});
+  automatic.checked=settings.enabled; interval.value=settings.seconds;
+  var note=E('span',{'class':'description'}), next=0, busy=false;
+  var updateSettings=function(){
+   var value=Number(interval.value);
+   if (!Number.isInteger(value) || value<3 || value>300) {
+    interval.setCustomValidity('请输入 3 到 300 之间的整数秒数');
+    interval.reportValidity(); interval.value=settings.seconds;
+    return;
+   }
+   interval.setCustomValidity('');
+   settings={enabled:automatic.checked,seconds:value}; next=Date.now()+value*1000;
+   interval.disabled=!settings.enabled;
+   note.textContent=settings.enabled?'每 '+value+' 秒自动刷新':'自动刷新已关闭';
+   try {localStorage.setItem('tr3600-manager.refresh',JSON.stringify(settings));} catch(ignore) {}
+  };
+  automatic.addEventListener('change',updateSettings); interval.addEventListener('change',updateSettings);
+  interval.addEventListener('input',function(){var n=Number(interval.value);if (Number.isInteger(n) && n>=3 && n<=300) updateSettings();});
+  updateSettings();
   var refresh=async function(){
+   if (busy) return;
+   busy=true;
    button.disabled=true; button.textContent='正在读取…';
    try {
     var results=await Promise.all([getStatus(),getBoard().catch(function(){return {};}),getInterfaces().catch(function(){return [];} )]);
@@ -59,11 +87,22 @@ return view.extend({
      E('details',{},[E('summary',{},'查看原始证据'),E('pre',{'style':'white-space:pre-wrap;overflow-wrap:anywhere'},JSON.stringify({board:board,status:s,interfaces:interfaces},null,2))])
     );
    } catch(err) {body.replaceChildren(E('div',{'class':'alert-message warning'},'读取失败：'+String(err)+'。请检查插件安装与 rpcd 服务。'));}
-   finally {button.disabled=false;button.textContent='刷新状态';}
+   finally {busy=false;next=Date.now()+settings.seconds*1000;button.disabled=false;button.textContent='刷新状态';}
   };
   button.addEventListener('click',refresh);
   refresh();
-  return E('div',{},[E('h2',{},'TR3600 硬件管家'),button,body]);
+  var root=E('div',{},[E('h2',{},'TR3600 硬件管家'),
+   E('div',{'style':'display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:16px'},[
+    button,E('label',{},[automatic,' 自动刷新']),E('label',{},['间隔 ',interval,' 秒']),note
+   ]),body]);
+  var attached=false;
+  var tick=function(){
+   if (!root.isConnected) {if (attached) poll.remove(tick);return;}
+   attached=true;
+   if (settings.enabled && !document.hidden && !busy && Date.now()>=next) return refresh();
+  };
+  poll.add(tick,1);
+  return root;
  },
  handleSave:null, handleSaveApply:null, handleReset:null
 });
