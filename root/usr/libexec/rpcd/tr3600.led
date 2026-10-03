@@ -1,0 +1,66 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# rpcd 获取方法列表时无需加载运行时依赖。
+if [ "$1" = list ]; then
+  printf '%s\n' '{"status":{},"set":{"disabled":true}}'
+  exit 0
+fi
+. /usr/share/libubox/jshn.sh
+. /usr/lib/tr3600-manager/led.sh
+
+status() {
+  local led name brightness count=0 lit=0 unreadable=0 supported=0 disabled=0
+  led_supported && supported=1
+  [ "$(uci -q get 'system.@system[-1].leds_off')" = 1 ] && disabled=1
+  json_init
+  json_add_boolean supported "$supported"
+  json_add_boolean disabled "$disabled"
+  json_add_array leds
+  for led in "$LED_ROOT"/*; do
+    [ -e "$led/brightness" ] || continue
+    count=$((count + 1))
+    name="${led##*/}"
+    brightness="$(cat "$led/brightness" 2>/dev/null)"
+    case "$brightness" in
+      ''|*[!0-9]*) unreadable=$((unreadable + 1)); brightness=0 ;;
+      *) [ "$brightness" -gt 0 ] && lit=$((lit + 1)) ;;
+    esac
+    json_add_object
+    json_add_string name "$name"
+    json_add_int brightness "$brightness"
+    json_close_object
+  done
+  json_close_array
+  json_add_int count "$count"
+  json_add_int lit "$lit"
+  json_add_int unreadable "$unreadable"
+  json_dump
+}
+
+case "$1" in
+  list) printf '%s\n' '{"status":{},"set":{"disabled":true}}' ;;
+  call)
+    case "$2" in
+      status) status ;;
+      set)
+        payload="$(cat)"
+        if ! json_load "$payload"; then
+          printf '%s\n' '{"ok":false,"error":"请求格式无效"}'; exit 0
+        fi
+        json_get_type type disabled
+        json_get_var disabled disabled
+        if [ "$type" != boolean ]; then
+          printf '%s\n' '{"ok":false,"error":"disabled 必须是布尔值"}'; exit 0
+        fi
+        ok=0
+        led_apply "$disabled" && ok=1
+        json_init
+        json_add_boolean ok "$ok"
+        json_add_string error "$LED_ERROR"
+        json_dump
+        ;;
+      *) exit 1 ;;
+    esac
+    ;;
+  *) exit 1 ;;
+esac

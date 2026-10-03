@@ -1,0 +1,7 @@
+config fan 'main'
+	option mode 'system'
+	option level '1'
+	option t1 '50'
+	option t2 '60'
+	option t3 '70'
+	option t4 '80'

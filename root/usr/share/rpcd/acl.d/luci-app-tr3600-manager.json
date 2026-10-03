@@ -1,6 +1,6 @@
 {
   "luci-app-tr3600-manager": {
-    "description": "只读 TR3600 硬件状态",
+    "description": "TR3600 硬件状态、灯光开关与受限风扇设置",
     "read": {
       "ubus": {
         "tr3600.manager": [
@@ -11,6 +11,22 @@
         ],
         "network.interface": [
           "dump"
+        ],
+        "tr3600.fan": [
+          "status"
+        ],
+        "tr3600.led": [
+          "status"
+        ]
+      }
+    },
+    "write": {
+      "ubus": {
+        "tr3600.fan": [
+          "configure"
+        ],
+        "tr3600.led": [
+          "set"
         ]
       }
     }

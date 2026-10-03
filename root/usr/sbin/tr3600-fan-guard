@@ -1,0 +1,17 @@
+#!/bin/sh
+. /usr/lib/tr3600-manager/fan.sh
+if ! fan_profile; then logger -t tr3600-fan "$FAN_ERROR"; exit 1; fi
+if [ "$1" = --boot ]; then
+ fan_config
+ if ! (flock -x 9; fan_apply) 9>/var/lock/tr3600-fan.lock; then
+  logger -t tr3600-fan "$FAN_ERROR; keeping kernel thermal control"
+  exit 1
+ fi
+fi
+echo "$$" > /var/run/tr3600-fan.pid
+trap 'rm -f /var/run/tr3600-fan.pid' EXIT
+while :; do
+ # Serialize against configuration RPC. Never overwrite thermal policy or mode.
+ ( flock -x 9; fan_guard_once ) 9>/var/lock/tr3600-fan.lock
+ sleep 2
+done
