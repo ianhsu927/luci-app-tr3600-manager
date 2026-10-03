@@ -1,0 +1,18 @@
+{
+  "luci-app-tr3600-manager": {
+    "description": "只读 TR3600 硬件状态",
+    "read": {
+      "ubus": {
+        "tr3600.manager": [
+          "status"
+        ],
+        "system": [
+          "board"
+        ],
+        "network.interface": [
+          "dump"
+        ]
+      }
+    }
+  }
+}

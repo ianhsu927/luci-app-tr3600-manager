@@ -1,0 +1,16 @@
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const source=fs.readFileSync(path.join(__dirname,'../htdocs/luci-static/resources/view/tr3600-manager/main.js'),'utf8');
+const helpers=new Function(source.slice(source.indexOf('function text'),source.indexOf('function table'))+';return {temperature,slot,fanValue};')();
+assert.equal(helpers.temperature('67072'),'67.1 °C');
+assert.equal(helpers.temperature(''),'不可读取');
+assert.equal(helpers.temperature('invalid'),'不可读取');
+assert.equal(helpers.temperature('-1000'),'-1.0 °C');
+assert.equal(helpers.slot({boot_image_slot:'0'},'boot_image_slot'),'0');
+assert.equal(helpers.slot({cmdline:'boot_param.boot_image_slot=1 foo'},'boot_image_slot'),'1');
+assert.equal(helpers.slot({cmdline:'xboot_param.boot_image_slot=1'},'boot_image_slot'),'不可读取');
+assert.equal(helpers.slot({cmdline:'boot_param.boot_image_slot=10'},'boot_image_slot'),'不可读取');
+assert.equal(helpers.fanValue({kind:'rpm',value:'0'}),'0 RPM');
+assert.equal(helpers.fanValue({kind:'rpm',value:''}),'不可读取');
+assert.match(helpers.fanValue({kind:'pwm',value:'64'}),/驱动设定值/);
+assert.equal(helpers.fanValue({kind:'cooling',value:'1',max:'4'}),'冷却档位 1/4');
+console.log('PASS: 12 display and fallback assertions');

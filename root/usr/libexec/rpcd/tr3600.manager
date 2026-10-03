@@ -1,0 +1,128 @@
+#!/bin/sh
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+case "$1:$2" in
+ list:*) echo '{"status":{}}'; exit 0 ;;
+ call:status) ;;
+ *) exit 1 ;;
+esac
+. /usr/share/libubox/jshn.sh
+# Fixed paths only; requests cannot choose a file or execute a command.
+read_value() { [ -r "$1" ] && cat "$1" 2>/dev/null; }
+field() { json_add_string "$1" "$(read_value "$2")"; }
+json_init
+json_add_string collected_at "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+field uptime /proc/uptime
+field meminfo /proc/meminfo
+json_add_array temperatures
+for zone in /sys/class/thermal/thermal_zone*; do
+ [ -d "$zone" ] || continue
+ json_add_object ''
+ json_add_string source "$zone"
+ field type "$zone/type"
+ field millidegrees "$zone/temp"
+ json_close_object
+done
+json_close_array
+json_add_array fans
+for hw in /sys/class/hwmon/hwmon*; do
+ [ -d "$hw" ] || continue
+ name=$(read_value "$hw/name")
+ for f in "$hw"/fan*_input "$hw"/pwm[0-9]; do
+  [ -r "$f" ] || continue
+  case "$f" in */pwm*) case "$name" in *fan*) ;; *) continue ;; esac ;; esac
+  json_add_object ''
+  json_add_string name "$name"
+  json_add_string source "$f"
+  case "$f" in */fan*) json_add_string kind rpm ;; *) json_add_string kind pwm ;; esac
+  field value "$f"
+  json_close_object
+ done
+done
+for c in /sys/class/thermal/cooling_device*; do
+ [ -d "$c" ] || continue
+ type=$(read_value "$c/type")
+ case "$type" in *fan*) ;; *) continue ;; esac
+ json_add_object ''
+ json_add_string name "$type"
+ json_add_string source "$c"
+ json_add_string kind cooling
+ field value "$c/cur_state"
+ field max "$c/max_state"
+ json_close_object
+done
+json_close_array
+# Read an already exported GPIO only; never export a GPIO or assume its number.
+json_add_array fan_switches
+for g in /sys/class/gpio/*; do
+ [ -d "$g" ] || continue
+ label=$(read_value "$g/label")
+ case "$g:$label" in *fan_switch*) ;; *) continue ;; esac
+ json_add_object ''
+ json_add_string source "$g"
+ field value "$g/value"
+ field active_low "$g/active_low"
+ json_close_object
+done
+json_close_array
+json_add_array ports
+for n in /sys/class/net/*; do
+ [ -d "$n" ] || continue
+ [ -e "$n/device" ] || continue
+ [ -d "$n/wireless" ] && continue
+ case "${n##*/}" in phy*|wlan*) continue ;; esac
+ json_add_object ''
+ json_add_string name "${n##*/}"
+ json_add_string source "$n"
+ master=$(readlink "$n/master" 2>/dev/null)
+ json_add_string master "${master##*/}"
+ field state "$n/operstate"
+ field carrier "$n/carrier"
+ field speed "$n/speed"
+ field duplex "$n/duplex"
+ json_close_object
+done
+json_close_array
+cmdline=$(read_value /proc/cmdline)
+json_add_object boot
+json_add_string cmdline "$cmdline"
+for key in dual_boot boot_image_slot upgrade_image_slot boot_kernel_part boot_rootfs_part upgrade_kernel_part upgrade_rootfs_part env_part rootfs_data_part; do
+ value=$(read_value "/sys/module/boot_param/parameters/$key")
+ if [ -z "$value" ]; then
+  for arg in $cmdline; do
+   case "$arg" in
+    "boot_param.$key="*) value=${arg#*=}; break ;;
+    boot_param.dual_boot) [ "$key" = dual_boot ] && value=Y ;;
+   esac
+  done
+ fi
+ json_add_string "$key" "$value"
+done
+json_close_object
+json_add_string filesystems "$(df -kP 2>/dev/null)"
+field partitions /proc/mtd
+json_add_array volumes
+for v in /sys/class/ubi/ubi[0-9]*_[0-9]*; do
+ [ -r "$v/name" ] || continue
+ json_add_object ''
+ json_add_string source "$v"
+ field name "$v/name"
+ field type "$v/type"
+ field reserved_ebs "$v/reserved_ebs"
+ field usable_eb_size "$v/usable_eb_size"
+ field data_bytes "$v/data_bytes"
+ json_close_object
+done
+json_close_array
+json_add_array ubi_devices
+for u in /sys/class/ubi/ubi[0-9]*; do
+ [ -r "$u/avail_eraseblocks" ] || continue
+ json_add_object ''
+ json_add_string source "$u"
+ field available_blocks "$u/avail_eraseblocks"
+ field eraseblock_size "$u/eraseblock_size"
+ field bad_blocks "$u/bad_peb_count"
+ json_close_object
+done
+json_close_array
+json_dump
