@@ -11,3 +11,5 @@ define Package/luci-app-tr3600-manager/conffiles
 endef
 
 include $(TOPDIR)/feeds/luci/luci.mk
+
+# call BuildPackage - OpenWrt buildroot signature
